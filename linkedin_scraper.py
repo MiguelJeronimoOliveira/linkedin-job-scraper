@@ -9,6 +9,7 @@ import time
 import json
 import csv
 import os
+import pickle
 from datetime import datetime
 from typing import List, Dict, Optional
 
@@ -16,14 +17,16 @@ from typing import List, Dict, Optional
 class LinkedInJobScraper:
     """LinkedIn Job Scraper using Selenium."""
     
-    def __init__(self, headless: bool = True, chromedriver_path: str = None):
+    def __init__(self, headless: bool = True, chromedriver_path: str = None, cookies_file: str = "linkedin_cookies.pkl"):
         """
         Initialize the scraper.
         
         Args:
             headless: Run browser in headless mode
             chromedriver_path: Path to chromedriver executable
+            cookies_file: Path to cookies file
         """
+        self.cookies_file = cookies_file
         self.options = Options()
         
         if headless:
@@ -49,18 +52,109 @@ class LinkedInJobScraper:
         
         self.wait = WebDriverWait(self.driver, 10)
         
-    def login(self, email: str, password: str) -> bool:
+    def save_cookies(self, filename: str = None):
+        """Save cookies to file for future use."""
+        filename = filename or self.cookies_file
+        try:
+            cookies = self.driver.get_cookies()
+            with open(filename, "wb") as f:
+                pickle.dump(cookies, f)
+            print(f"💾 Cookies saved to {filename}")
+            return True
+        except Exception as e:
+            print(f"⚠️  Error saving cookies: {e}")
+            return False
+    
+    def load_cookies(self, filename: str = None) -> bool:
+        """Load cookies from file."""
+        filename = filename or self.cookies_file
+        try:
+            if not os.path.exists(filename):
+                return False
+            
+            with open(filename, "rb") as f:
+                cookies = pickle.load(f)
+            
+            # Navigate to domain before adding cookies
+            self.driver.get("https://www.linkedin.com")
+            time.sleep(2)
+            
+            for cookie in cookies:
+                try:
+                    # Remove expiry if present (causes issues)
+                    if 'expiry' in cookie:
+                        del cookie['expiry']
+                    self.driver.add_cookie(cookie)
+                except Exception as e:
+                    continue
+            
+            print(f"🍪 Cookies loaded from {filename}")
+            return True
+        except Exception as e:
+            print(f"⚠️  Error loading cookies: {e}")
+            return False
+    
+    def is_logged_in(self) -> bool:
+        """Check if user is logged in using cookies."""
+        try:
+            self.driver.get("https://www.linkedin.com/feed")
+            time.sleep(3)
+            
+            # Check if we're on feed page (logged in) or login page
+            if "feed" in self.driver.current_url:
+                print("✅ Already logged in with cookies!")
+                return True
+            else:
+                return False
+        except:
+            return False
+        
+    def login_with_manual(self) -> bool:
+        """Login manually with user interaction (for 2FA)."""
+        try:
+            print("🔐 Opening LinkedIn login page...")
+            print("👤 Please login manually (complete 2FA if needed)")
+            self.driver.get("https://www.linkedin.com/login")
+            
+            # Wait for user to login manually
+            input("\n👉 Press ENTER after you've successfully logged in...")
+            
+            # Check if login was successful
+            time.sleep(2)
+            if "feed" in self.driver.current_url or "linkedin.com/in/" in self.driver.current_url:
+                print("✅ Login successful!")
+                self.save_cookies()
+                return True
+            else:
+                print("❌ Login verification failed")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Manual login error: {e}")
+            return False
+        
+    def login(self, email: str, password: str, use_cookies: bool = True) -> bool:
         """
-        Login to LinkedIn.
+        Login to LinkedIn with cookie support.
         
         Args:
             email: LinkedIn email
             password: LinkedIn password
+            use_cookies: Try to use/load cookies
             
         Returns:
             True if login successful
         """
+        # Try cookies first
+        if use_cookies and os.path.exists(self.cookies_file):
+            print("🍪 Trying to login with cookies...")
+            if self.load_cookies() and self.is_logged_in():
+                return True
+            print("⚠️  Cookies expired or invalid")
+        
+        # Try auto login
         try:
+            print("🔐 Logging in with credentials...")
             self.driver.get("https://www.linkedin.com/login")
             
             # Wait for login form
@@ -77,18 +171,22 @@ class LinkedInJobScraper:
             login_button = self.driver.find_element(By.XPATH, "//button[@type='submit']")
             login_button.click()
             
-            # Wait for feed to load (indicates successful login)
-            time.sleep(3)
+            # Wait for result
+            time.sleep(4)
             
-            if "feed" in self.driver.current_url or "checkpoint" not in self.driver.current_url:
+            if "feed" in self.driver.current_url:
                 print("✅ Login successful!")
+                self.save_cookies()
                 return True
+            elif "checkpoint" in self.driver.current_url or "challenge" in self.driver.current_url:
+                print("⚠️  2FA/Captcha required - switching to manual login")
+                return self.login_with_manual()
             else:
-                print("⚠️  Login might require verification (2FA/captcha)")
+                print("❌ Login failed - check credentials")
                 return False
                 
         except TimeoutException:
-            print("❌ Login timeout - check credentials or LinkedIn blocks login")
+            print("❌ Login timeout")
             return False
         except Exception as e:
             print(f"❌ Login error: {e}")

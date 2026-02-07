@@ -19,30 +19,64 @@ def main():
     parser.add_argument("--password", "-p", help="LinkedIn password (or use LINKEDIN_PASSWORD env)")
     parser.add_argument("--headless", action="store_true", default=True, help="Run in headless mode")
     parser.add_argument("--no-headless", dest="headless", action="store_false", help="Show browser window")
+    parser.add_argument("--manual-login", "-m", action="store_true", help="Login manually (for 2FA)")
+    parser.add_argument("--cookies", "-c", default="linkedin_cookies.pkl", help="Cookies file path")
+    parser.add_argument("--no-cookies", action="store_true", help="Don't use cookies")
     
     args = parser.parse_args()
     
-    # Get credentials
-    email = args.email or os.getenv("LINKEDIN_EMAIL")
-    password = args.password or os.getenv("LINKEDIN_PASSWORD")
-    
-    if not email or not password:
-        print("❌ Error: Please provide LinkedIn credentials via:")
-        print("   - Command line: --email and --password")
-        print("   - Environment variables: LINKEDIN_EMAIL and LINKEDIN_PASSWORD")
-        print("   - .env file")
-        return
-    
     # Initialize scraper
     print("🚀 Starting LinkedIn Job Scraper...")
-    scraper = LinkedInJobScraper(headless=args.headless)
+    scraper = LinkedInJobScraper(headless=args.headless, cookies_file=args.cookies)
     
     try:
         # Login
         print("🔐 Logging in...")
-        if not scraper.login(email, password):
-            print("❌ Login failed. Exiting.")
-            return
+        
+        if args.manual_login:
+            # Manual login mode (for first time or 2FA)
+            if not scraper.login_with_manual():
+                print("❌ Manual login failed. Exiting.")
+                return
+        else:
+            # Auto login with cookies support
+            # Try cookies first if available
+            if not args.no_cookies and os.path.exists(args.cookies):
+                print("🍪 Found existing cookies, trying to login...")
+                if scraper.is_logged_in():
+                    print("✅ Logged in with cookies!")
+                else:
+                    # Cookies expired, need credentials
+                    email = args.email or os.getenv("LINKEDIN_EMAIL")
+                    password = args.password or os.getenv("LINKEDIN_PASSWORD")
+                    
+                    if not email or not password:
+                        print("⚠️  Cookies expired and no credentials provided.")
+                        print("   Options:")
+                        print("   1. Run with --manual-login to login with 2FA")
+                        print("   2. Provide --email and --password")
+                        print("   3. Set LINKEDIN_EMAIL and LINKEDIN_PASSWORD in .env")
+                        return
+                    
+                    if not scraper.login(email, password):
+                        print("❌ Login failed. Try --manual-login for 2FA.")
+                        return
+            else:
+                # No cookies, need credentials
+                email = args.email or os.getenv("LINKEDIN_EMAIL")
+                password = args.password or os.getenv("LINKEDIN_PASSWORD")
+                
+                if not email or not password:
+                    print("❌ Error: Please provide LinkedIn credentials via:")
+                    print("   - Command line: --email and --password")
+                    print("   - Environment variables: LINKEDIN_EMAIL and LINKEDIN_PASSWORD")
+                    print("   - .env file")
+                    print("   Or use --manual-login for first-time login with 2FA")
+                    return
+                
+                if not scraper.login(email, password):
+                    print("❌ Login failed. Try --manual-login for 2FA.")
+                    return
         
         # Search for jobs
         print(f"🔍 Searching for '{args.keywords}' in '{args.location or 'Anywhere'}'...")
