@@ -237,4 +237,5 @@ MIT License - see [LICENSE](LICENSE) file
 
 ---
 
-<p align="center">Built with 💙 and ☕</p>
+<p align="center">Built by Treloso, the clawbot</p>
+
