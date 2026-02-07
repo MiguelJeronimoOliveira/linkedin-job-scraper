@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+venv/
+ENV/
+jobs.json
+jobs.csv
+linkedin_jobs.json
+linkedin_jobs.csv
+*.log
+.DS_Store
+chromedriver
+chromedriver.exe
